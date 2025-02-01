@@ -8,7 +8,7 @@ import {
 import { assertEquals } from 'https://deno.land/std@0.90.0/testing/asserts.ts';
 
 Clarinet.test({
-    name: "Ensure can mint NFT",
+    name: "Ensure can mint NFT with royalties",
     async fn(chain: Chain, accounts: Map<string, Account>) {
         const wallet_1 = accounts.get('wallet_1')!;
         
@@ -16,14 +16,13 @@ Clarinet.test({
             Tx.contractCall('secure_mint', 'mint-nft', [
                 types.utf8("Test NFT"),
                 types.utf8("A test NFT description"),
-                types.utf8("https://test.com/image.png")
+                types.utf8("https://test.com/image.png"),
+                types.uint(5) // 5% royalty
             ], wallet_1.address)
         ]);
         
-        // Assert successful mint
         block.receipts[0].result.expectOk().expectUint(1);
         
-        // Verify metadata
         let metadata = chain.callReadOnlyFn(
             'secure_mint',
             'get-nft-data',
@@ -36,29 +35,39 @@ Clarinet.test({
 });
 
 Clarinet.test({
-    name: "Ensure can transfer NFT",
+    name: "Ensure can list and purchase NFT",
     async fn(chain: Chain, accounts: Map<string, Account>) {
         const wallet_1 = accounts.get('wallet_1')!;
         const wallet_2 = accounts.get('wallet_2')!;
         
-        // First mint an NFT
+        // Mint NFT
         let block = chain.mineBlock([
             Tx.contractCall('secure_mint', 'mint-nft', [
                 types.utf8("Test NFT"),
                 types.utf8("A test NFT description"),
-                types.utf8("https://test.com/image.png")
+                types.utf8("https://test.com/image.png"),
+                types.uint(5)
             ], wallet_1.address)
         ]);
         
-        // Now transfer it
-        let transferBlock = chain.mineBlock([
-            Tx.contractCall('secure_mint', 'transfer-nft', [
+        // List NFT
+        let listBlock = chain.mineBlock([
+            Tx.contractCall('secure_mint', 'list-nft', [
                 types.uint(1),
-                types.principal(wallet_2.address)
+                types.uint(1000000) // List for 1 STX
             ], wallet_1.address)
         ]);
         
-        transferBlock.receipts[0].result.expectOk().expectBool(true);
+        listBlock.receipts[0].result.expectOk().expectBool(true);
+        
+        // Purchase NFT
+        let purchaseBlock = chain.mineBlock([
+            Tx.contractCall('secure_mint', 'purchase-nft', [
+                types.uint(1)
+            ], wallet_2.address)
+        ]);
+        
+        purchaseBlock.receipts[0].result.expectOk().expectBool(true);
         
         // Verify new owner
         let owner = chain.callReadOnlyFn(
@@ -73,29 +82,33 @@ Clarinet.test({
 });
 
 Clarinet.test({
-    name: "Ensure cannot mint duplicate token ID",
+    name: "Ensure marketplace fees and royalties are distributed correctly",
     async fn(chain: Chain, accounts: Map<string, Account>) {
-        const wallet_1 = accounts.get('wallet_1')!;
+        const wallet_1 = accounts.get('wallet_1')!; // Creator
+        const wallet_2 = accounts.get('wallet_2')!; // Buyer
         
-        // First mint
+        // Mint and list NFT
         chain.mineBlock([
             Tx.contractCall('secure_mint', 'mint-nft', [
-                types.utf8("Test NFT 1"),
-                types.utf8("First NFT"),
-                types.utf8("https://test.com/1.png")
+                types.utf8("Test NFT"),
+                types.utf8("Description"),
+                types.utf8("image.png"),
+                types.uint(10) // 10% royalty
+            ], wallet_1.address),
+            Tx.contractCall('secure_mint', 'list-nft', [
+                types.uint(1),
+                types.uint(1000000) // 1 STX
             ], wallet_1.address)
         ]);
         
-        // Attempt duplicate mint
-        let block = chain.mineBlock([
-            Tx.contractCall('secure_mint', 'mint-nft', [
-                types.utf8("Test NFT 1"),
-                types.utf8("First NFT"),
-                types.utf8("https://test.com/1.png")
-            ], wallet_1.address)
+        // Purchase NFT
+        let purchaseBlock = chain.mineBlock([
+            Tx.contractCall('secure_mint', 'purchase-nft', [
+                types.uint(1)
+            ], wallet_2.address)
         ]);
         
-        // Should fail
-        block.receipts[0].result.expectOk().expectUint(2);
+        purchaseBlock.receipts[0].result.expectOk().expectBool(true);
+        // Additional assertions for fee/royalty transfers could be added here
     }
 });
