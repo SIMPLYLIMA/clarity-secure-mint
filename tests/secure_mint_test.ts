@@ -1,5 +1,3 @@
-[Previous test content...]
-
 Clarinet.test({
     name: "Ensure proper handling of marketplace fees and royalties with edge cases",
     async fn(chain: Chain, accounts: Map<string, Account>) {
@@ -20,7 +18,13 @@ Clarinet.test({
             ], wallet_1.address)
         ]);
         
-        // Verify minimum price handling
+        // Verify listing event
+        block.receipts[1].events.expectPrintEvent(
+            'secure_mint',
+            { type: "nft_listed" }
+        );
+        
+        // Test purchase
         let purchaseBlock = chain.mineBlock([
             Tx.contractCall('secure_mint', 'purchase-nft', [
                 types.uint(1)
@@ -29,10 +33,20 @@ Clarinet.test({
         
         purchaseBlock.receipts[0].result.expectOk().expectBool(true);
         
-        // Verify events were emitted
+        // Verify sale event
         purchaseBlock.receipts[0].events.expectPrintEvent(
             'secure_mint',
             { type: "nft_sold" }
         );
+        
+        // Test maximum price validation
+        let maxPriceBlock = chain.mineBlock([
+            Tx.contractCall('secure_mint', 'list-nft', [
+                types.uint(1),
+                types.uint(1000000000001) // Exceeds maximum
+            ], wallet_2.address)
+        ]);
+        
+        maxPriceBlock.receipts[0].result.expectErr(108); // err-invalid-price
     }
 });
